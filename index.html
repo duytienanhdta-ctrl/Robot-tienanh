@@ -236,7 +236,7 @@
         }
         requestAnimationFrame(drawFace);
 
-        // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT AN TOÀN ---
+       // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT AN TOÀN CHO IOS ---
         function speakText(text, callback) {
             if (!text || !text.trim()) {
                 if (callback) callback();
@@ -250,24 +250,26 @@
 
             const cleanText = text.replace(/[*#_\-~]/g, "").trim();
             const utter = new SpeechSynthesisUtterance(cleanText);
-            const voices = window.speechSynthesis.getVoices();
-
-            let femaleVoice = voices.find(v => 
-                (v.lang.includes("vi") || v.lang.includes("VI")) && 
-                (v.name.includes("Linh") || v.name.includes("HoaiMy") || v.name.includes("Female") || v.name.includes("Google"))
-            );
-
-            if (!femaleVoice) {
-                femaleVoice = voices.find(v => v.lang.startsWith("vi") || v.lang.includes("VN"));
-            }
-
-            if (femaleVoice) {
-                utter.voice = femaleVoice;
-            }
-            
             utter.lang = "vi-VN";
             utter.rate = 1.0;
             utter.pitch = 1.15;
+
+            // Lấy giọng đọc tiếng Việt nếu có sẵn
+            try {
+                const voices = window.speechSynthesis.getVoices();
+                if (voices && voices.length > 0) {
+                    let femaleVoice = voices.find(v => 
+                        (v.lang.includes("vi") || v.lang.includes("VI")) && 
+                        (v.name.includes("Linh") || v.name.includes("HoaiMy") || v.name.includes("Female") || v.name.includes("Google"))
+                    );
+                    if (!femaleVoice) {
+                        femaleVoice = voices.find(v => v.lang.startsWith("vi") || v.lang.includes("VN"));
+                    }
+                    if (femaleVoice) {
+                        utter.voice = femaleVoice;
+                    }
+                }
+            } catch(e) {}
 
             const onDone = () => {
                 isTalking = false;
@@ -414,34 +416,30 @@ Thông tin gia đình của bạn:
             }
         }
 
-        // --- 7. SỰ KIỆN CLICK (MỞ KHÓA QUYỀN TRÊN SAFARI) ---
-        btnStart.onclick = async function() {
-            // 1. Tắt overlay ngay lập tức
+      // --- 7. SỰ KIỆN CLICK (MỞ KHÓA ÂM THANH ĐỒNG THỜI TRÊN SAFARI) ---
+        btnStart.onclick = function() {
+            // 1. Ẩn nút ngay lập tức
             startOverlay.style.display = "none";
 
-            // 2. Kích hoạt quyền Micro phần cứng chuẩn iOS
-            try {
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    // Tắt stream tạm này để nhường cho Web Speech API
-                    stream.getTracks().forEach(track => track.stop());
-                }
-            } catch(e) {
-                console.warn("Chưa cấp quyền mic phần cứng:", e);
-            }
-
-            // 3. Đánh thức giọng nói iOS
-            try {
-                const dummyUtter = new SpeechSynthesisUtterance("");
-                window.speechSynthesis.speak(dummyUtter);
-            } catch(e) {}
-
-            // 4. Phát câu chào và kích hoạt nghe
+            // 2. MỞ KHÓA ÂM THANH NGAY TẠI CỬ CHỈ CHẠM (BẮT BUỘC TRÊN SAFARI)
             const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
             botSub.innerText = `Tiến Anh: "${greeting}"`;
+
+            // Gọi phát âm thanh ngay lập tức mà không chờ qua await
             speakText(greeting, () => {
                 startListening();
             });
+
+            // 3. Xin cấp quyền Micro phần cứng song song
+            try {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                        stream.getTracks().forEach(track => track.stop());
+                    }).catch(err => {
+                        console.warn("Chưa cấp quyền mic phần cứng:", err);
+                    });
+                }
+            } catch(e) {}
         };
 
         // Chạm vào bất kỳ vị trí nào trên màn hình đều kích hoạt nghe lại
