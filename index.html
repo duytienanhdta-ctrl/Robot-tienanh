@@ -240,7 +240,7 @@
         }
         requestAnimationFrame(drawFace);
 
-        // --- 4. BỘ PHÁT ÂM GIỌNG NỮ TIẾNG VIỆT CHUẨN ---
+        // --- 4. BỘ PHÁT ÂM TƯƠNG THÍCH HOÀN TOÀN VỚI SAFARI / IOS ---
         function speakText(text, callback) {
             if (!text || !text.trim()) {
                 if (callback) callback();
@@ -250,8 +250,12 @@
             isTalking = true;
             setRobotState("SPEAKING");
 
+            // Trên Safari bắt buộc dừng hẳn phiên nhận diện trước khi phát loa
             if (recognition) {
-                try { recognition.abort(); } catch (e) {}
+                try { 
+                    recognition.onend = null; // Gỡ bỏ sự kiện tạm thời để tránh lặp vòng lặp vô tận
+                    recognition.abort(); 
+                } catch (e) {}
             }
 
             window.speechSynthesis.cancel();
@@ -260,10 +264,10 @@
             const utter = new SpeechSynthesisUtterance(cleanText);
             const voices = window.speechSynthesis.getVoices();
 
-            // Ưu tiên giọng nữ tiếng Việt (Hoài My trên Edge hoặc Google tiếng Việt)
+            // Tìm giọng tiếng Việt (trên iOS thường là Linh hoặc tiếng Việt mặc định)
             let femaleVoice = voices.find(v => 
                 (v.lang.includes("vi") || v.lang.includes("VI")) && 
-                (v.name.includes("HoaiMy") || v.name.includes("Hoài My") || v.name.includes("Female") || v.name.includes("Google"))
+                (v.name.includes("Linh") || v.name.includes("HoaiMy") || v.name.includes("Female") || v.name.includes("Google"))
             );
 
             if (!femaleVoice) {
@@ -278,28 +282,105 @@
             utter.rate = 1.0;
             utter.pitch = 1.15;
 
-            utter.onend = () => {
+            const handleSpeechEnd = () => {
                 isTalking = false;
                 setRobotState("NORMAL");
                 if (callback) callback();
-                startListening();
+                
+                // Nghỉ 350ms để iOS giải phóng loa ngoài trước khi mở lại Micro
+                setTimeout(() => {
+                    startListening();
+                }, 350);
             };
 
+            utter.onend = handleSpeechEnd;
             utter.onerror = (e) => {
                 console.warn("Lỗi phát âm:", e);
-                isTalking = false;
-                setRobotState("NORMAL");
-                if (callback) callback();
-                startListening();
+                handleSpeechEnd();
             };
 
             window.speechSynthesis.speak(utter);
         }
 
-        if (typeof window !== "undefined" && "speechSynthesis" in window) {
-            window.speechSynthesis.onvoiceschanged = () => {
-                window.speechSynthesis.getVoices();
+        // --- 6. NHẬN DIỆN GIỌNG NÓI CHUẨN IOS / SAFARI ---
+        let sendLock = false;
+
+        function startListening() {
+            if (isTalking) return;
+            
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) return;
+
+            // Hủy phiên cũ nếu còn sót lại
+            if (recognition) {
+                try {
+                    recognition.onend = null;
+                    recognition.onerror = null;
+                    recognition.abort();
+                } catch(e) {}
+            }
+
+            // Luôn khởi tạo đối tượng mới cho từng lượt trò chuyện (chuẩn bắt buộc trên Safari)
+            recognition = new SpeechRec();
+            recognition.continuous = false; // Đổi sang false để tương thích hoàn toàn với iOS
+            recognition.interimResults = true;
+            recognition.lang = "vi-VN";
+
+            let currentTranscript = "";
+
+            recognition.onstart = () => {
+                sendLock = false;
+                setRobotState("NORMAL");
             };
+
+            recognition.onresult = (event) => {
+                if (isTalking || sendLock) return;
+
+                let text = "";
+                for (let i = 0; i < event.results.length; ++i) {
+                    text += event.results[i][0].transcript;
+                }
+                currentTranscript = text.trim();
+
+                if (currentTranscript) {
+                    userSub.innerText = `Bố nói: "${currentTranscript}"`;
+
+                    clearTimeout(silenceTimer);
+                    // Dừng nói 0.8 giây sẽ gửi đi
+                    silenceTimer = setTimeout(async () => {
+                        if (sendLock || isTalking) return;
+                        sendLock = true;
+
+                        const query = currentTranscript;
+                        try { recognition.abort(); } catch(e) {}
+
+                        setRobotState("THINKING");
+                        const answer = await askGemini(query);
+                        botSub.innerText = `Tiến Anh: "${answer}"`;
+                        
+                        speakText(answer);
+                    }, 800);
+                }
+            };
+
+            recognition.onerror = (e) => {
+                if (e.error !== "no-speech") {
+                    console.warn("Trạng thái nhận diện:", e.error);
+                }
+            };
+
+            recognition.onend = () => {
+                // Nếu người dùng chưa nói gì hoặc phiên tự ngắt, tự động mở lại phiên mới
+                if (!isTalking && !sendLock) {
+                    setTimeout(() => {
+                        startListening();
+                    }, 250);
+                }
+            };
+
+            try {
+                recognition.start();
+            } catch(e) {}
         }
 
         // --- 5. GỌI GEMINI REST API ---
