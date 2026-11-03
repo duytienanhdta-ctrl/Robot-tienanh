@@ -38,19 +38,19 @@
         <canvas id="robotCanvas"></canvas>
         
         <!-- Nút bấm bắt đầu trò chuyện lần đầu -->
-        <div id="start-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-20 transition-all duration-300">
-            <button id="btn-start" type="button" class="px-8 py-4 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-black font-bold text-base shadow-[0_0_30px_rgba(6,182,212,0.6)] transition-all">
+        <div id="start-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/95 z-30">
+            <button id="btn-start" type="button" class="px-8 py-4 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-90 text-black font-bold text-base shadow-[0_0_35px_rgba(6,182,212,0.8)] transition-all">
                 Bắt đầu trò chuyện với Tiến Anh
             </button>
-            <p class="mt-4 text-xs text-neutral-400">Chạm để đánh thức và cấp quyền cho bé Tiến Anh</p>
+            <p class="mt-4 text-xs text-neutral-400 text-center px-4">Chạm để cấp quyền micro và loa cho bé Tiến Anh</p>
         </div>
     </main>
 
     <!-- Bảng hiển thị nội dung đối thoại -->
-    <footer class="w-full max-w-2xl px-6 py-4 z-10 bg-gradient-to-t from-black to-transparent flex flex-col gap-1 text-center">
+    <footer class="w-full max-w-2xl px-6 py-3 z-10 bg-gradient-to-t from-black to-transparent flex flex-col gap-1 text-center">
         <p id="user-sub" class="text-sm text-neutral-400 min-h-[1.5rem] italic"></p>
         <p id="bot-sub" class="text-base font-medium text-cyan-300 min-h-[1.75rem]"></p>
-        <p class="text-[11px] text-neutral-500 mt-1">Mẹo: Bố có thể chạm vào màn hình bất kỳ lúc nào để nói chuyện</p>
+        <p class="text-[11px] text-neutral-500">Chạm vào màn hình bất cứ lúc nào để nói chuyện</p>
     </footer>
 
     <script>
@@ -82,7 +82,7 @@
         window.addEventListener("resize", resizeCanvas);
         resizeCanvas();
 
-        // --- 3. HOẠT HỌA KHUÔN MẶT ROBOT ---
+        // --- 3. VẼ KHUÔN MẶT ROBOT ---
         let blinkProgress = 1.0;
         let isClosing = true;
         let isBlinking = false;
@@ -159,7 +159,7 @@
             const leftEyeX = cx - eyeW - (gap / 2);
             const rightEyeX = cx + (gap / 2);
 
-            // --- VẼ HAI TAI ROBOT (VỂNH LÊN TRÊN) ---
+            // TAI VỂNH LÊN TRÊN
             ctx.save();
             ctx.strokeStyle = mainColor;
             ctx.fillStyle = (robotState === "SPEAKING") ? "rgba(16, 185, 129, 0.25)" : "rgba(0, 216, 246, 0.25)";
@@ -206,7 +206,7 @@
 
             ctx.restore();
 
-            // --- VẼ ĐÔI MẮT ---
+            // MẮT
             ctx.fillStyle = mainColor;
             ctx.shadowColor = mainColor;
             ctx.shadowBlur = 20;
@@ -221,7 +221,7 @@
             drawRoundedRect(rightEyeX, eyeY, eyeW, eyeH, radius);
             ctx.shadowBlur = 0;
 
-            // --- VẼ MIỆNG ---
+            // MIỆNG
             const mouthW = eyeW * 1.5;
             const mouthX = cx - (mouthW / 2);
             const mouthY = cy + (eyeBaseH / 2) + 25;
@@ -236,7 +236,7 @@
         }
         requestAnimationFrame(drawFace);
 
-        // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT (AN TOÀN CHO IOS) ---
+        // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT AN TOÀN ---
         function speakText(text, callback) {
             if (!text || !text.trim()) {
                 if (callback) callback();
@@ -246,13 +246,7 @@
             isTalking = true;
             setRobotState("SPEAKING");
 
-            if (recognition) {
-                try { recognition.abort(); } catch(e) {}
-            }
-
-            try {
-                window.speechSynthesis.cancel();
-            } catch(e) {}
+            try { window.speechSynthesis.cancel(); } catch(e) {}
 
             const cleanText = text.replace(/[*#_\-~]/g, "").trim();
             const utter = new SpeechSynthesisUtterance(cleanText);
@@ -275,23 +269,22 @@
             utter.rate = 1.0;
             utter.pitch = 1.15;
 
-            const onFinish = () => {
+            const onDone = () => {
                 isTalking = false;
                 setRobotState("NORMAL");
                 if (callback) callback();
-                // Tự động mở mic trở lại sau khi dứt câu
                 setTimeout(() => {
                     startListening();
                 }, 300);
             };
 
-            utter.onend = onFinish;
-            utter.onerror = onFinish;
+            utter.onend = onDone;
+            utter.onerror = onDone;
 
             try {
                 window.speechSynthesis.speak(utter);
             } catch(e) {
-                onFinish();
+                onDone();
             }
         }
 
@@ -316,7 +309,6 @@ Thông tin gia đình của bạn:
 - Bạn tên là Tiến Anh, 9 tuổi, học lớp 4 trường Tiểu học Phú Hòa 3. 
 - Bố là bố Quang, mẹ là mẹ Thuận. 
 - Anh trai sinh đôi là Duy Anh (học cùng lớp 4 trường Phú Hòa 3). 
-- hai anh em sinh ngày 26 tháng 5 năm 2017.
 - Cách xưng hô: Luôn xưng là 'con' và gọi 'bố' hoặc 'bố Quang'. Tuyệt đối không xưng 'cháu' hay gọi 'cô/chú'. 
 - Bắt buộc trả lời bằng tiếng Việt ngắn gọn, súc tích (1 đến 2 câu ngắn, dưới 25 từ) để đọc thành tiếng tự nhiên, dễ thương, không dùng ký tự đặc biệt, dấu hoa thị hay emoji.`;
 
@@ -330,17 +322,9 @@ Thông tin gia đình của bạn:
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            system_instruction: {
-                                parts: [{ text: promptHeThong }]
-                            },
-                            contents: [{
-                                role: "user",
-                                parts: [{ text: promptText }]
-                            }],
-                            generationConfig: {
-                                temperature: 0.6,
-                                maxOutputTokens: 80
-                            }
+                            system_instruction: { parts: [{ text: promptHeThong }] },
+                            contents: [{ role: "user", parts: [{ text: promptText }] }],
+                            generationConfig: { temperature: 0.6, maxOutputTokens: 80 }
                         })
                     });
 
@@ -356,7 +340,7 @@ Thông tin gia đình của bạn:
             return "Con nghe chưa rõ lắm, bố nói lại cho con nghe với nha!";
         }
 
-        // --- 6. BỘ THU ÂM TIẾNG VIỆT TƯƠNG THÍCH MỌI TRÌNH DUYỆT ---
+        // --- 6. NHẬN DIỆN GIỌNG NÓI CHUẨN SAFARI ---
         function startListening() {
             if (isTalking || isThinking) return;
 
@@ -413,52 +397,61 @@ Thông tin gia đình của bạn:
                 };
 
                 recognition.onerror = (e) => {
-                    // Tự khởi động lại nếu gặp lỗi no-speech
                     if (e.error === "no-speech" && !isTalking && !isThinking) {
-                        setTimeout(() => startListening(), 200);
+                        setTimeout(() => startListening(), 250);
                     }
                 };
 
                 recognition.onend = () => {
                     if (!isTalking && !isThinking) {
-                        setTimeout(() => startListening(), 200);
+                        setTimeout(() => startListening(), 250);
                     }
                 };
 
                 recognition.start();
             } catch(err) {
-                console.warn("Không thể kích hoạt micro:", err);
+                console.warn("Lỗi nhận diện:", err);
             }
         }
 
-        // --- 7. SỰ KIỆN NÚT BẮT ĐẦU & CHẠM MÀN HÌNH ---
-        btnStart.addEventListener("click", (e) => {
-            e.stopPropagation();
-            // Ẩn bảng bắt đầu ngay lập tức
+        // --- 7. SỰ KIỆN CLICK (MỞ KHÓA QUYỀN TRÊN SAFARI) ---
+        btnStart.onclick = async function() {
+            // 1. Tắt overlay ngay lập tức
             startOverlay.style.display = "none";
 
-            // Kích hoạt nạp âm thanh trước để Safari cấp quyền
+            // 2. Kích hoạt quyền Micro phần cứng chuẩn iOS
             try {
-                window.speechSynthesis.getVoices();
-            } catch(err) {}
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    // Tắt stream tạm này để nhường cho Web Speech API
+                    stream.getTracks().forEach(track => track.stop());
+                }
+            } catch(e) {
+                console.warn("Chưa cấp quyền mic phần cứng:", e);
+            }
 
+            // 3. Đánh thức giọng nói iOS
+            try {
+                const dummyUtter = new SpeechSynthesisUtterance("");
+                window.speechSynthesis.speak(dummyUtter);
+            } catch(e) {}
+
+            // 4. Phát câu chào và kích hoạt nghe
             const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
             botSub.innerText = `Tiến Anh: "${greeting}"`;
-            
-            // Đọc câu chào, sau khi chào xong sẽ tự động mở mic
             speakText(greeting, () => {
                 startListening();
             });
-        });
+        };
 
-        // Bấm vào bất kỳ đâu trên màn hình hoặc mặt robot đều có thể đánh thức micro
-        mainArea.addEventListener("click", () => {
+        // Chạm vào bất kỳ vị trí nào trên màn hình đều kích hoạt nghe lại
+        mainArea.onclick = function() {
             if (startOverlay.style.display === "none" && !isTalking && !isThinking) {
                 startListening();
             }
-        });
+        };
 
-        btnConfig.addEventListener("click", (e) => {
+        btnConfig.onclick = function(e) {
             e.stopPropagation();
             const current = apiKey || "";
             const key = prompt("Nhập mã Gemini API Key của bạn:", current);
@@ -467,7 +460,7 @@ Thông tin gia đình của bạn:
                 localStorage.setItem("gemini_api_key", apiKey);
                 alert("Đã lưu API Key thành công!");
             }
-        });
+        };
     </script>
 </body>
 </html>
