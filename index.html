@@ -37,12 +37,12 @@
     <main class="flex-1 w-full flex items-center justify-center relative cursor-pointer" id="main-area">
         <canvas id="robotCanvas"></canvas>
         
-        <!-- Nút bấm bắt đầu trò chuyện lần đầu -->
+        <!-- Nút bấm bắt đầu trò chuyện -->
         <div id="start-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/95 z-30">
             <button id="btn-start" type="button" class="px-8 py-4 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-90 text-black font-bold text-base shadow-[0_0_35px_rgba(6,182,212,0.8)] transition-all">
                 Bắt đầu trò chuyện với Tiến Anh
             </button>
-            <p class="mt-4 text-xs text-neutral-400 text-center px-4">Chạm để cấp quyền micro và loa cho bé Tiến Anh</p>
+            <p class="mt-4 text-xs text-neutral-400 text-center px-4">Chạm để mở khóa âm thanh cho bé Tiến Anh</p>
         </div>
     </main>
 
@@ -50,7 +50,7 @@
     <footer class="w-full max-w-2xl px-6 py-3 z-10 bg-gradient-to-t from-black to-transparent flex flex-col gap-1 text-center">
         <p id="user-sub" class="text-sm text-neutral-400 min-h-[1.5rem] italic"></p>
         <p id="bot-sub" class="text-base font-medium text-cyan-300 min-h-[1.75rem]"></p>
-        <p class="text-[11px] text-neutral-500">Chạm vào màn hình bất cứ lúc nào để nói chuyện</p>
+        <p class="text-[11px] text-neutral-500">Chạm vào màn hình để bắt đầu nói câu tiếp theo</p>
     </footer>
 
     <script>
@@ -61,6 +61,7 @@
         let robotState = "NORMAL";
         let recognition = null;
         let silenceTimer = null;
+        let speakTimeout = null;
 
         const canvas = document.getElementById("robotCanvas");
         const ctx = canvas.getContext("2d");
@@ -236,13 +237,14 @@
         }
         requestAnimationFrame(drawFace);
 
-       // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT AN TOÀN CHO IOS ---
+        // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT CHỐNG TREO TRÊN IOS ---
         function speakText(text, callback) {
             if (!text || !text.trim()) {
                 if (callback) callback();
                 return;
             }
 
+            clearTimeout(speakTimeout);
             isTalking = true;
             setRobotState("SPEAKING");
 
@@ -252,26 +254,13 @@
             const utter = new SpeechSynthesisUtterance(cleanText);
             utter.lang = "vi-VN";
             utter.rate = 1.0;
-            utter.pitch = 1.15;
+            utter.pitch = 1.1;
 
-            // Lấy giọng đọc tiếng Việt nếu có sẵn
-            try {
-                const voices = window.speechSynthesis.getVoices();
-                if (voices && voices.length > 0) {
-                    let femaleVoice = voices.find(v => 
-                        (v.lang.includes("vi") || v.lang.includes("VI")) && 
-                        (v.name.includes("Linh") || v.name.includes("HoaiMy") || v.name.includes("Female") || v.name.includes("Google"))
-                    );
-                    if (!femaleVoice) {
-                        femaleVoice = voices.find(v => v.lang.startsWith("vi") || v.lang.includes("VN"));
-                    }
-                    if (femaleVoice) {
-                        utter.voice = femaleVoice;
-                    }
-                }
-            } catch(e) {}
-
-            const onDone = () => {
+            let hasFinished = false;
+            const finishSpeaking = () => {
+                if (hasFinished) return;
+                hasFinished = true;
+                clearTimeout(speakTimeout);
                 isTalking = false;
                 setRobotState("NORMAL");
                 if (callback) callback();
@@ -280,13 +269,17 @@
                 }, 300);
             };
 
-            utter.onend = onDone;
-            utter.onerror = onDone;
+            utter.onend = finishSpeaking;
+            utter.onerror = finishSpeaking;
+
+            // Bộ đếm an toàn: Sau thời gian ước lượng (dựa trên độ dài câu) + 1.5s, tự ngắt nếu iOS bị treo sự kiện
+            const estimatedDuration = Math.max(2000, (cleanText.length * 120));
+            speakTimeout = setTimeout(finishSpeaking, estimatedDuration);
 
             try {
                 window.speechSynthesis.speak(utter);
             } catch(e) {
-                onDone();
+                finishSpeaking();
             }
         }
 
@@ -342,7 +335,7 @@ Thông tin gia đình của bạn:
             return "Con nghe chưa rõ lắm, bố nói lại cho con nghe với nha!";
         }
 
-        // --- 6. NHẬN DIỆN GIỌNG NÓI CHUẨN SAFARI ---
+        // --- 6. NHẬN DIỆN GIỌNG NÓI AN TOÀN TRÊN SAFARI ---
         function startListening() {
             if (isTalking || isThinking) return;
 
@@ -412,37 +405,32 @@ Thông tin gia đình của bạn:
 
                 recognition.start();
             } catch(err) {
-                console.warn("Lỗi nhận diện:", err);
+                console.warn("Lỗi khởi chạy mic:", err);
             }
         }
 
-      // --- 7. SỰ KIỆN CLICK (MỞ KHÓA ÂM THANH ĐỒNG THỜI TRÊN SAFARI) ---
+        // --- 7. SỰ KIỆN CLICK MỞ KHÓA TOÀN BỘ HỆ THỐNG ÂM THANH TRÊN IOS ---
         btnStart.onclick = function() {
-            // 1. Ẩn nút ngay lập tức
             startOverlay.style.display = "none";
 
-            // 2. MỞ KHÓA ÂM THANH NGAY TẠI CỬ CHỈ CHẠM (BẮT BUỘC TRÊN SAFARI)
+            // 1. Mở khóa AudioContext và SpeechSynthesis tức thì
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (AudioCtx) {
+                    const ctxAudio = new AudioCtx();
+                    ctxAudio.resume();
+                }
+            } catch(e) {}
+
+            // 2. Chạy câu chào
             const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
             botSub.innerText = `Tiến Anh: "${greeting}"`;
-
-            // Gọi phát âm thanh ngay lập tức mà không chờ qua await
             speakText(greeting, () => {
                 startListening();
             });
-
-            // 3. Xin cấp quyền Micro phần cứng song song
-            try {
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-                        stream.getTracks().forEach(track => track.stop());
-                    }).catch(err => {
-                        console.warn("Chưa cấp quyền mic phần cứng:", err);
-                    });
-                }
-            } catch(e) {}
         };
 
-        // Chạm vào bất kỳ vị trí nào trên màn hình đều kích hoạt nghe lại
+        // Chạm vào màn hình để kích hoạt nghe ngay lập tức nếu Safari đưa tab vào trạng thái ngủ
         mainArea.onclick = function() {
             if (startOverlay.style.display === "none" && !isTalking && !isThinking) {
                 startListening();
