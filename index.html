@@ -283,7 +283,7 @@
             }
         }
 
-       // --- 5. GỌI GEMINI REST API TỐC ĐỘ CAO (DƯỚI 1 GIÂY) ---
+       // --- 5. GỌI GEMINI REST API CHUẨN XÁC, PHẢN HỒI NGAY LẬP TỨC ---
         async function askGemini(promptText) {
             let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
             const currentKey = rawKey.replace(/[\r\n\t ]+/g, "").trim();
@@ -297,46 +297,50 @@
             const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
             const dateStr = `${days[now.getDay()]}, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`;
 
-            const promptHeThong = `Bạn là bé Tiến Anh, 9 tuổi, con của bố Quang và mẹ Thuận. Nhà có anh sinh đôi Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không ký hiệu.`;
+            // Ghép ngữ cảnh trực tiếp vào prompt để mọi model Gemini đều hiểu mà không bị lỗi cấu trúc REST
+            const systemPrompt = `[Ngữ cảnh: Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Tiểu học Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố hoặc bố Quang. Bắt buộc trả lời cực kỳ ngắn gọn dưới 20 từ, tự nhiên, không dùng ký hiệu hoa thị (*), dấu thăng (#) hay emoji.]\n\nBố Quang hỏi: "${promptText}"\nTiến Anh trả lời:`;
 
-            // Ưu tiên trực tiếp model chạy ổn định và nhanh nhất hiện tại
-            const targetModel = "gemini-2.5-flash-lite";
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${currentKey}`;
+            // Danh sách model tương thích cao nhất
+            const modelsToTry = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash"];
 
-            // Tạo controller để ngắt nếu quá 4 giây
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            for (let modelName of modelsToTry) {
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentKey}`;
+                    
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{ text: systemPrompt }]
+                            }]
+                        })
+                    });
 
-            try {
-                const response = await fetch(url, {
-                    method: "POST",
-                    signal: controller.signal,
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        system_instruction: { parts: [{ text: promptHeThong }] },
-                        contents: [{ role: "user", parts: [{ text: promptText }] }],
-                        generationConfig: {
-                            temperature: 0.5,
-                            maxOutputTokens: 40 // Giảm số lượng token sinh ra để API phản hồi tức thì
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+                            let reply = data.candidates[0].content.parts[0].text;
+                            // Lọc sạch các ký tự đánh dấu markdown để đọc mượt mà
+                            return reply.replace(/[*#_\-~"]/g, "").trim();
                         }
-                    })
-                });
-
-                clearTimeout(timeoutId);
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts) {
-                        return data.candidates[0].content.parts[0].text.replace(/[*#_\-~]/g, "").trim();
+                    } else {
+                        const errData = await response.json().catch(() => ({}));
+                        console.warn(`Model ${modelName} trả về lỗi HTTP ${response.status}:`, errData);
+                        // Nếu sai API Key thì báo ngay cho người dùng
+                        if (response.status === 400 || response.status === 403) {
+                            if (errData.error && errData.error.message && errData.error.message.includes("API key")) {
+                                return "Mã API Key của bố chưa chính xác, bố kiểm tra lại giúp con nhé!";
+                            }
+                        }
                     }
+                } catch (err) {
+                    console.warn(`Lỗi khi gọi model ${modelName}:`, err);
                 }
-            } catch (err) {
-                clearTimeout(timeoutId);
             }
 
             return "Con nghe chưa rõ lắm, bố nói lại cho con nghe với nha!";
         }
-
         // --- 6. NHẬN DIỆN GIỌNG NÓI AN TOÀN TRÊN SAFARI ---
         function startListening() {
             if (isTalking || isThinking) return;
