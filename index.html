@@ -283,10 +283,9 @@
             }
         }
 
-      // --- 5. GỌI GEMINI REST API CHUẨN XÁC VỚI API KEY MỚI (DẠNG AQ.) ---
+      // --- 5. GỌI GEMINI REST API CHUẨN XÁC (SỬA LỖI 404) ---
         async function askGemini(promptText) {
             let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
-            // Lọc sạch khoảng trắng ở hai đầu nhưng GIỮ NGUYÊN dấu chấm (.) của key mới
             const currentKey = rawKey.trim();
             
             if (!currentKey) {
@@ -300,15 +299,16 @@
 
             const fullPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không dùng ký hiệu đặc biệt.\n\nBố hỏi: ${promptText}\nTiến Anh:`;
 
-            // Dùng endpoint v1beta với model gemini-2.5-flash
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+            // Dùng model chính thức gemini-1.5-flash để không bao giờ bị lỗi 404
+            const targetModel = "gemini-1.5-flash";
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(currentKey)}`;
 
             try {
                 const response = await fetch(url, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "x-goog-api-key": currentKey // Gửi API Key qua Header chuẩn để hỗ trợ key dạng AQ.
+                        "x-goog-api-key": currentKey
                     },
                     body: JSON.stringify({
                         contents: [
