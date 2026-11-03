@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Tiến Anh - Trợ Lý Thông Minh</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="bg-black flex flex-col items-center justify-between h-screen text-white select-none">
+
+    <!-- Thanh trạng thái và Cài đặt API -->
+    <header class="w-full flex justify-between items-center px-6 py-4 z-10 bg-gradient-to-b from-black/80 to-transparent">
+        <div class="flex items-center gap-3">
+            <span id="status-dot" class="w-3.5 h-3.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            <span id="status-text" class="text-sm font-medium tracking-wide text-cyan-300">Sẵn sàng</span>
+        </div>
+        <button id="btn-config" class="px-3.5 py-1.5 rounded-lg border border-neutral-700 bg-neutral-900/80 hover:bg-neutral-800 text-xs text-neutral-300 transition">
+            Cài đặt API Key
+        </button>
+    </header>
+
+    <!-- Khu vực Canvas hiển thị khuôn mặt robot -->
+    <main class="flex-1 w-full flex items-center justify-center relative">
+        <canvas id="robotCanvas"></canvas>
+        
+        <!-- Nút bấm bắt đầu trò chuyện lần đầu -->
+        <div id="start-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-20 transition-opacity">
+            <button id="btn-start" class="px-8 py-3.5 rounded-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-base shadow-[0_0_30px_rgba(6,182,212,0.6)] transition-all transform hover:scale-105 active:scale-95">
+                Bắt đầu trò chuyện với Tiến Anh
+            </button>
+            <p class="mt-4 text-xs text-neutral-400">Nhấn để kích hoạt micro và âm thanh của bé Tiến Anh</p>
+        </div>
+    </main>
+
+    <!-- Bảng hiển thị nội dung đối thoại -->
+    <footer class="w-full max-w-2xl px-6 py-4 z-10 bg-gradient-to-t from-black to-transparent flex flex-col gap-1 text-center">
+        <p id="user-sub" class="text-sm text-neutral-400 min-h-[1.5rem] italic"></p>
+        <p id="bot-sub" class="text-base font-medium text-cyan-300 min-h-[1.75rem]"></p>
+    </footer>
+
+    <script>
+        // --- 1. CẤU HÌNH & TRẠNG THÁI ---
+        let apiKey = localStorage.getItem("gemini_api_key") || "";
+        let isTalking = false;
+        let robotState = "NORMAL"; // NORMAL (Lắng nghe), THINKING, SPEAKING
+        let recognition = null;
+        let silenceTimer = null;
+        let transcriptBuffer = "";
+
+        const canvas = document.getElementById("robotCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const statusDot = document.getElementById("status-dot");
+        const statusText = document.getElementById("status-text");
+        const userSub = document.getElementById("user-sub");
+        const botSub = document.getElementById("bot-sub");
+        const btnConfig = document.getElementById("btn-config");
+        const btnStart = document.getElementById("btn-start");
+        const startOverlay = document.getElementById("start-overlay");
+
+        // --- 2. KÍCH THƯỚC CANVAS ---
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight * 0.75;
+        }
+        window.addEventListener("resize", resizeCanvas);
+        resizeCanvas();
+
+        // --- 3. HOẠT HOẠ KHUÔN MẶT ROBOT ---
+        let blinkProgress = 1.0;
+        let isClosing = true;
+        let isBlinking = false;
+        let animTimer = 0.0;
+        let mouthHeight = 4.0;
+
+        function setRobotState(state) {
+            robotState = state;
+            if (state === "THINKING") {
+                statusDot.className = "w-3.5 h-3.5 rounded-full bg-amber-400 animate-pulse";
+                statusText.className = "text-sm font-medium tracking-wide text-amber-300";
+                statusText.innerText = "Tiến Anh đang suy nghĩ...";
+            } else if (state === "SPEAKING") {
+                statusDot.className = "w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse";
+                statusText.className = "text-sm font-medium tracking-wide text-emerald-300";
+                statusText.innerText = "Tiến Anh đang trả lời...";
+            } else {
+                statusDot.className = "w-3.5 h-3.5 rounded-full bg-cyan-400 animate-pulse";
+                statusText.className = "text-sm font-medium tracking-wide text-cyan-300";
+                statusText.innerText = "Đang lắng nghe bố nói...";
+            }
+        }
+
+        setInterval(() => {
+            if (robotState === "NORMAL" && !isBlinking && Math.random() < 0.6) {
+                isBlinking = true;
+                blinkProgress = 1.0;
+                isClosing = true;
+            }
+        }, 3500);
+
+        function drawFace() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+
+            animTimer += 0.016;
+
+            // Xử lý chớp mắt
+            if (isBlinking) {
+                if (isClosing) {
+                    blinkProgress -= 0.15;
+                    if (blinkProgress <= 0.08) {
+                        blinkProgress = 0.08;
+                        isClosing = false;
+                    }
+                } else {
+                    blinkProgress += 0.15;
+                    if (blinkProgress >= 1.0) {
+                        blinkProgress = 1.0;
+                        isBlinking = false;
+                    }
+                }
+            }
+
+            // Chuyển động miệng theo nhịp nói
+            if (robotState === "SPEAKING") {
+                mouthHeight = 16.0 + 14.0 * Math.sin(animTimer * 18.0);
+            } else {
+                mouthHeight = 4.0;
+            }
+
+            // Màu chủ đạo
+            let mainColor = "#00d8f6";
+            if (robotState === "THINKING") mainColor = "#f59e0b";
+            if (robotState === "SPEAKING") mainColor = "#10b981";
+
+            const eyeW = Math.min(w * 0.22, 130);
+            const eyeBaseH = Math.min(h * 0.42, 180);
+            const eyeH = eyeBaseH * blinkProgress;
+            const gap = Math.min(w * 0.14, 90);
+            const radius = eyeW * 0.35;
+
+            const eyeY = cy - (eyeH / 2) - 10;
+            const leftEyeX = cx - eyeW - (gap / 2);
+            const rightEyeX = cx + (gap / 2);
+
+            // --- VẼ HAI TAI ROBOT (VỂNH HƯỚNG LÊN TRÊN) ---
+            ctx.save();
+            ctx.strokeStyle = mainColor;
+            ctx.fillStyle = (robotState === "SPEAKING") ? "rgba(16, 185, 129, 0.25)" : "rgba(0, 216, 246, 0.25)";
+            ctx.lineWidth = 4;
+            ctx.lineJoin = 'round';
+            ctx.shadowColor = mainColor;
+            ctx.shadowBlur = 15;
+
+            // Tai mở rộng khi đang nghe, thu nhỏ khi nói hoặc suy nghĩ
+            const earSpan = (robotState === "NORMAL") ? 50 : 25; 
+            const earHeight = (robotState === "NORMAL") ? 45 : 20;
+
+            // 1. TAI TRÁI
+            const leftEarBaseX = leftEyeX;
+            const leftEarBaseY = cy - 10;
+
+            ctx.beginPath();
+            ctx.moveTo(leftEarBaseX, leftEarBaseY - 35);
+            ctx.lineTo(leftEarBaseX - earSpan, leftEarBaseY - earHeight); // Đỉnh vểnh lên trên
+            ctx.lineTo(leftEarBaseX, leftEarBaseY + 25);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(leftEarBaseX - earSpan, leftEarBaseY - earHeight, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            // 2. TAI PHẢI
+            const rightEarBaseX = rightEyeX + eyeW;
+            const rightEarBaseY = cy - 10;
+
+            ctx.fillStyle = (robotState === "SPEAKING") ? "rgba(16, 185, 129, 0.25)" : "rgba(0, 216, 246, 0.25)";
+            ctx.beginPath();
+            ctx.moveTo(rightEarBaseX, rightEarBaseY - 35);
+            ctx.lineTo(rightEarBaseX + earSpan, rightEarBaseY - earHeight); // Đỉnh vểnh lên trên
+            ctx.lineTo(rightEarBaseX, rightEarBaseY + 25);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(rightEarBaseX + earSpan, rightEarBaseY - earHeight, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            ctx.restore();
+
+            // --- VẼ ĐÔI MẮT ---
+            ctx.fillStyle = mainColor;
+            ctx.shadowColor = mainColor;
+            ctx.shadowBlur = 20;
+
+            function drawRoundedRect(x, y, width, height, r) {
+                ctx.beginPath();
+                ctx.roundRect(x, y, width, height, r);
+                ctx.fill();
+            }
+
+            drawRoundedRect(leftEyeX, eyeY, eyeW, eyeH, radius);
+            drawRoundedRect(rightEyeX, eyeY, eyeW, eyeH, radius);
+            ctx.shadowBlur = 0;
+
+            // --- VẼ MIỆNG ROBOT ---
+            const mouthW = eyeW * 1.5;
+            const mouthX = cx - (mouthW / 2);
+            const mouthY = cy + (eyeBaseH / 2) + 25;
+
+            ctx.fillStyle = mainColor;
+            ctx.shadowColor = mainColor;
+            ctx.shadowBlur = 15;
+            drawRoundedRect(mouthX, mouthY - mouthHeight / 2, mouthW, Math.max(mouthHeight, 5), mouthW * 0.25);
+            ctx.shadowBlur = 0;
+
+            requestAnimationFrame(drawFace);
+        }
+        requestAnimationFrame(drawFace);
+
+        // --- 4. BỘ PHÁT ÂM GIỌNG NỮ TIẾNG VIỆT CHUẨN ---
+        function speakText(text, callback) {
+            if (!text || !text.trim()) {
+                if (callback) callback();
+                return;
+            }
+
+            isTalking = true;
+            setRobotState("SPEAKING");
+
+            if (recognition) {
+                try { recognition.abort(); } catch (e) {}
+            }
+
+            window.speechSynthesis.cancel();
+
+            const cleanText = text.replace(/[*#_\-~]/g, "").trim();
+            const utter = new SpeechSynthesisUtterance(cleanText);
+            const voices = window.speechSynthesis.getVoices();
+
+            // Ưu tiên giọng nữ tiếng Việt (Hoài My trên Edge hoặc Google tiếng Việt)
+            let femaleVoice = voices.find(v => 
+                (v.lang.includes("vi") || v.lang.includes("VI")) && 
+                (v.name.includes("HoaiMy") || v.name.includes("Hoài My") || v.name.includes("Female") || v.name.includes("Google"))
+            );
+
+            if (!femaleVoice) {
+                femaleVoice = voices.find(v => v.lang.startsWith("vi") || v.lang.includes("VN"));
+            }
+
+            if (femaleVoice) {
+                utter.voice = femaleVoice;
+            }
+            
+            utter.lang = "vi-VN";
+            utter.rate = 1.0;
+            utter.pitch = 1.15;
+
+            utter.onend = () => {
+                isTalking = false;
+                setRobotState("NORMAL");
+                if (callback) callback();
+                startListening();
+            };
+
+            utter.onerror = (e) => {
+                console.warn("Lỗi phát âm:", e);
+                isTalking = false;
+                setRobotState("NORMAL");
+                if (callback) callback();
+                startListening();
+            };
+
+            window.speechSynthesis.speak(utter);
+        }
+
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                window.speechSynthesis.getVoices();
+            };
+        }
+
+        // --- 5. GỌI GEMINI REST API ---
+        async function askGemini(promptText) {
+            let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
+            const currentKey = rawKey.replace(/[\r\n\t ]+/g, "").trim();
+            
+            if (!currentKey) {
+                return "Bố bấm nút Cài đặt API Key ở góc trên để dán mã khóa vào giúp con nhé!";
+            }
+
+            const now = new Date();
+            const timeStr = `${now.getHours()} giờ ${now.getMinutes()} phút`;
+            const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+            const dateStr = `${days[now.getDay()]}, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`;
+
+            const promptHeThong = `Bạn là bé Tiến Anh, một bé trai 9 tuổi, thông minh, lém lỉnh, ngoan ngoãn. 
+Người đang nói chuyện trực tiếp với bạn chính là BỐ QUANG. 
+Lúc này đồng hồ đang là ${timeStr}, ${dateStr}. 
+Thông tin gia đình của bạn: 
+- Bạn tên là Tiến Anh, 9 tuổi, học lớp 4 trường Tiểu học Phú Hòa 3. 
+- Bố là bố Quang, mẹ là mẹ Thuận. 
+- Anh trai sinh đôi là Duy Anh (học cùng lớp 4 trường Phú Hòa 3). 
+- 2 anh em sinh ngày 26 tháng 5 năm 2017.
+- Cách xưng hô: Luôn xưng là 'con' và gọi 'bố' hoặc 'bố Quang'. Tuyệt đối không xưng 'cháu' hay gọi 'cô/chú'. 
+- Bắt buộc trả lời bằng tiếng Việt ngắn gọn, súc tích (1 đến 2 câu ngắn, dưới 25 từ) để đọc thành tiếng tự nhiên, dễ thương, không dùng ký tự đặc biệt, dấu hoa thị hay emoji.`;
+
+            const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash-lite"];
+
+            for (let modelName of modelsToTry) {
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentKey}`;
+                    
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            system_instruction: {
+                                parts: [{ text: promptHeThong }]
+                            },
+                            contents: [{
+                                role: "user",
+                                parts: [{ text: promptText }]
+                            }],
+                            generationConfig: {
+                                temperature: 0.6,
+                                maxOutputTokens: 80
+                            }
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts) {
+                            const reply = data.candidates[0].content.parts[0].text;
+                            return reply.replace(/[*#_\-~]/g, "").trim();
+                        }
+                    } else {
+                        console.warn(`Model ${modelName} đang bận, thử model khác...`);
+                    }
+                } catch (err) {
+                    console.warn(`Lỗi kết nối tới ${modelName}:`, err);
+                }
+            }
+
+            return "Con nghe chưa rõ lắm, bố nói lại cho con nghe với nha!";
+        }
+
+      // --- 6. NHẬN DIỆN GIỌNG NÓI TỰ ĐỘNG, CHỐNG KẸT TRẠNG THÁI ---
+        let sendLock = false;
+
+        function initSpeechRecognition() {
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) {
+                alert("Trình duyệt không hỗ trợ nhận diện giọng nói!");
+                return;
+            }
+
+            if (recognition) {
+                try { recognition.stop(); } catch(e) {}
+            }
+
+            recognition = new SpeechRec();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = "vi-VN";
+
+            recognition.onstart = () => {
+                if (!isTalking) {
+                    setRobotState("NORMAL");
+                }
+            };
+
+            recognition.onresult = (event) => {
+                // Nếu robot đang nói hoặc đang gửi câu hỏi thì bỏ qua để không thu âm tạp
+                if (isTalking || sendLock) return;
+
+                let fullTranscript = "";
+                for (let i = 0; i < event.results.length; ++i) {
+                    fullTranscript += event.results[i][0].transcript + " ";
+                }
+                fullTranscript = fullTranscript.trim();
+
+                if (fullTranscript) {
+                    userSub.innerText = `Bố nói: "${fullTranscript}"`;
+
+                    // Xóa bộ đếm cũ nếu bố vẫn đang nói tiếp
+                    clearTimeout(silenceTimer);
+
+                    // Khi bố dừng nói đúng 0.8 giây: Gửi câu hỏi đi ngay
+                    silenceTimer = setTimeout(async () => {
+                        if (sendLock || isTalking) return;
+                        sendLock = true;
+
+                        const finalQuery = fullTranscript;
+                        transcriptBuffer = "";
+
+                        // Dừng micro để không thu âm tiếng thở hay tiếng ồn xung quanh
+                        try { recognition.stop(); } catch(e) {}
+
+                        setRobotState("THINKING");
+                        const answer = await askGemini(finalQuery);
+                        botSub.innerText = `Tiến Anh: "${answer}"`;
+                        
+                        sendLock = false;
+                        speakText(answer);
+                    }, 800);
+                }
+            };
+
+            recognition.onerror = (e) => {
+                if (e.error !== "no-speech") {
+                    console.warn("Trạng thái nhận diện:", e.error);
+                }
+            };
+
+            recognition.onend = () => {
+                // Tự động bật lại micro khi robot không nói và không bận xử lý
+                if (!isTalking && !sendLock) {
+                    setTimeout(() => {
+                        try { recognition.start(); } catch(e) {}
+                    }, 200);
+                }
+            };
+
+            try {
+                recognition.start();
+            } catch(e) {}
+        }
+
+        function startListening() {
+            isTalking = false;
+            sendLock = false;
+            setRobotState("NORMAL");
+            if (recognition) {
+                try { recognition.start(); } catch(e) {}
+            } else {
+                initSpeechRecognition();
+            }
+        }
+
+        // --- 7. SỰ KIỆN NÚT BẤM & KHỞI ĐỘNG ---
+        btnStart.addEventListener("click", () => {
+            startOverlay.style.opacity = "0";
+            setTimeout(() => startOverlay.style.display = "none", 300);
+
+            initSpeechRecognition();
+
+            const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
+            botSub.innerText = `Tiến Anh: "${greeting}"`;
+            speakText(greeting);
+        });
+
+        btnConfig.addEventListener("click", () => {
+            const current = apiKey || "";
+            const key = prompt("Nhập mã Gemini API Key của bạn:", current);
+            if (key !== null) {
+                apiKey = key.trim();
+                localStorage.setItem("gemini_api_key", apiKey);
+                alert("Đã lưu API Key thành công!");
+            }
+        });
+    </script>
+</body>
+</html>
