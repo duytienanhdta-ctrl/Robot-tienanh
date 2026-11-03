@@ -240,7 +240,7 @@
         }
         requestAnimationFrame(drawFace);
 
-        // --- 4. BỘ PHÁT ÂM TƯƠNG THÍCH HOÀN TOÀN VỚI SAFARI / IOS ---
+        // --- 4. BỘ PHÁT ÂM GIỮ LUỒNG CHO IOS ---
         function speakText(text, callback) {
             if (!text || !text.trim()) {
                 if (callback) callback();
@@ -250,21 +250,12 @@
             isTalking = true;
             setRobotState("SPEAKING");
 
-            // Trên Safari bắt buộc dừng hẳn phiên nhận diện trước khi phát loa
-            if (recognition) {
-                try { 
-                    recognition.onend = null; // Gỡ bỏ sự kiện tạm thời để tránh lặp vòng lặp vô tận
-                    recognition.abort(); 
-                } catch (e) {}
-            }
-
             window.speechSynthesis.cancel();
 
             const cleanText = text.replace(/[*#_\-~]/g, "").trim();
             const utter = new SpeechSynthesisUtterance(cleanText);
             const voices = window.speechSynthesis.getVoices();
 
-            // Tìm giọng tiếng Việt (trên iOS thường là Linh hoặc tiếng Việt mặc định)
             let femaleVoice = voices.find(v => 
                 (v.lang.includes("vi") || v.lang.includes("VI")) && 
                 (v.name.includes("Linh") || v.name.includes("HoaiMy") || v.name.includes("Female") || v.name.includes("Google"))
@@ -282,94 +273,139 @@
             utter.rate = 1.0;
             utter.pitch = 1.15;
 
-            const handleSpeechEnd = () => {
-                isTalking = false;
-                setRobotState("NORMAL");
-                if (callback) callback();
-                
-                // Nghỉ 350ms để iOS giải phóng loa ngoài trước khi mở lại Micro
+            utter.onend = () => {
+                // Đợi 400ms để âm thanh dứt hẳn, mở lại quyền ghi nhận lời nói
                 setTimeout(() => {
-                    startListening();
-                }, 350);
+                    isTalking = false;
+                    setRobotState("NORMAL");
+                    if (callback) callback();
+                }, 400);
             };
 
-            utter.onend = handleSpeechEnd;
-            utter.onerror = (e) => {
-                console.warn("Lỗi phát âm:", e);
-                handleSpeechEnd();
+            utter.onerror = () => {
+                setTimeout(() => {
+                    isTalking = false;
+                    setRobotState("NORMAL");
+                    if (callback) callback();
+                }, 400);
             };
 
             window.speechSynthesis.speak(utter);
         }
 
-        // --- 6. NHẬN DIỆN GIỌNG NÓI CHUẨN IOS / SAFARI ---
+        // --- 6. NHẬN DIỆN GIỌNG NÓI CHỐNG KHÓA MICRO SAFARI ---
         let sendLock = false;
 
-        function startListening() {
-            if (isTalking) return;
-            
+        function initSpeechRecognition() {
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRec) return;
-
-            // Hủy phiên cũ nếu còn sót lại
-            if (recognition) {
-                try {
-                    recognition.onend = null;
-                    recognition.onerror = null;
-                    recognition.abort();
-                } catch(e) {}
+            if (!SpeechRec) {
+                alert("Trình duyệt không hỗ trợ Web Speech API!");
+                return;
             }
 
-            // Luôn khởi tạo đối tượng mới cho từng lượt trò chuyện (chuẩn bắt buộc trên Safari)
+            try {
+                if (recognition) recognition.abort();
+            } catch(e) {}
+
             recognition = new SpeechRec();
-            recognition.continuous = false; // Đổi sang false để tương thích hoàn toàn với iOS
+            recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = "vi-VN";
 
-            let currentTranscript = "";
-
             recognition.onstart = () => {
-                sendLock = false;
-                setRobotState("NORMAL");
+                if (!isTalking) setRobotState("NORMAL");
             };
 
             recognition.onresult = (event) => {
+                // Khi robot đang nói hoặc đang xử lý gửi API, bỏ qua hoàn toàn âm thanh thu vào
                 if (isTalking || sendLock) return;
 
-                let text = "";
-                for (let i = 0; i < event.results.length; ++i) {
-                    text += event.results[i][0].transcript;
+                let latestTranscript = "";
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    latestTranscript += event.results[i][0].transcript;
                 }
-                currentTranscript = text.trim();
+                latestTranscript = latestTranscript.trim();
 
-                if (currentTranscript) {
-                    userSub.innerText = `Bố nói: "${currentTranscript}"`;
+                if (latestTranscript) {
+                    userSub.innerText = `Bố nói: "${latestTranscript}"`;
 
                     clearTimeout(silenceTimer);
-                    // Dừng nói 0.8 giây sẽ gửi đi
                     silenceTimer = setTimeout(async () => {
-                        if (sendLock || isTalking) return;
+                        if (isTalking || sendLock) return;
                         sendLock = true;
 
-                        const query = currentTranscript;
-                        try { recognition.abort(); } catch(e) {}
-
+                        const query = latestTranscript;
                         setRobotState("THINKING");
+
                         const answer = await askGemini(query);
                         botSub.innerText = `Tiến Anh: "${answer}"`;
                         
+                        sendLock = false;
                         speakText(answer);
                     }, 800);
                 }
             };
 
             recognition.onerror = (e) => {
+                // Bỏ qua lỗi no-speech để không làm đơ ứng dụng
                 if (e.error !== "no-speech") {
-                    console.warn("Trạng thái nhận diện:", e.error);
+                    console.warn("Speech error:", e.error);
                 }
             };
 
             recognition.onend = () => {
+                // Tự động khởi động lại ngay nếu Safari tự ngắt luồng
+                if (!sendLock) {
+                    try {
+                        recognition.start();
+                    } catch(e) {}
+                }
+            };
+
+            try {
+                recognition.start();
+            } catch(e) {}
+        }
+
+        function startListening() {
+            if (recognition) {
+                try { recognition.start(); } catch(e) {}
+            } else {
+                initSpeechRecognition();
+            }
+        }
+
+        // --- 7. SỰ KIỆN BẬT / CHẠM MÀN HÌNH ĐỂ KÍCH HOẠT LẠI MICRO NẾU CẦN ---
+        btnStart.addEventListener("click", () => {
+            startOverlay.style.opacity = "0";
+            setTimeout(() => startOverlay.style.display = "none", 300);
+
+            initSpeechRecognition();
+
+            const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
+            botSub.innerText = `Tiến Anh: "${greeting}"`;
+            speakText(greeting);
+        });
+
+        // Cho phép chạm vào bất kỳ đâu trên màn hình để đánh thức lại micro nếu iOS tạm ngắt
+        canvas.addEventListener("click", () => {
+            if (!isTalking && !sendLock) {
+                try {
+                    recognition.start();
+                    setRobotState("NORMAL");
+                } catch(e) {}
+            }
+        });
+
+        btnConfig.addEventListener("click", () => {
+            const current = apiKey || "";
+            const key = prompt("Nhập mã Gemini API Key của bạn:", current);
+            if (key !== null) {
+                apiKey = key.trim();
+                localStorage.setItem("gemini_api_key", apiKey);
+                alert("Đã lưu API Key thành công!");
+            }
+        });
                 // Nếu người dùng chưa nói gì hoặc phiên tự ngắt, tự động mở lại phiên mới
                 if (!isTalking && !sendLock) {
                     setTimeout(() => {
