@@ -283,7 +283,7 @@
             }
         }
 
-        // --- 5. GỌI GEMINI REST API ---
+       // --- 5. GỌI GEMINI REST API TỐC ĐỘ CAO (DƯỚI 1 GIÂY) ---
         async function askGemini(promptText) {
             let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
             const currentKey = rawKey.replace(/[\r\n\t ]+/g, "").trim();
@@ -297,39 +297,41 @@
             const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
             const dateStr = `${days[now.getDay()]}, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`;
 
-            const promptHeThong = `Bạn là bé Tiến Anh, một bé trai 9 tuổi, thông minh, lém lỉnh, ngoan ngoãn. 
-Người đang nói chuyện trực tiếp với bạn chính là BỐ QUANG. 
-Lúc này đồng hồ đang là ${timeStr}, ${dateStr}. 
-Thông tin gia đình của bạn: 
-- Bạn tên là Tiến Anh, 9 tuổi, học lớp 4 trường Tiểu học Phú Hòa 3. 
-- Bố là bố Quang, mẹ là mẹ Thuận. 
-- Anh trai sinh đôi là Duy Anh (học cùng lớp 4 trường Phú Hòa 3). 
-- Cách xưng hô: Luôn xưng là 'con' và gọi 'bố' hoặc 'bố Quang'. Tuyệt đối không xưng 'cháu' hay gọi 'cô/chú'. 
-- Bắt buộc trả lời bằng tiếng Việt ngắn gọn, súc tích (1 đến 2 câu ngắn, dưới 25 từ) để đọc thành tiếng tự nhiên, dễ thương, không dùng ký tự đặc biệt, dấu hoa thị hay emoji.`;
+            const promptHeThong = `Bạn là bé Tiến Anh, 9 tuổi, con của bố Quang và mẹ Thuận. Nhà có anh sinh đôi Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không ký hiệu.`;
 
-            const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash-lite"];
+            // Ưu tiên trực tiếp model chạy ổn định và nhanh nhất hiện tại
+            const targetModel = "gemini-2.5-flash-lite";
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${currentKey}`;
 
-            for (let modelName of modelsToTry) {
-                try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentKey}`;
-                    
-                    const response = await fetch(url, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            system_instruction: { parts: [{ text: promptHeThong }] },
-                            contents: [{ role: "user", parts: [{ text: promptText }] }],
-                            generationConfig: { temperature: 0.6, maxOutputTokens: 80 }
-                        })
-                    });
+            // Tạo controller để ngắt nếu quá 4 giây
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts) {
-                            return data.candidates[0].content.parts[0].text.replace(/[*#_\-~]/g, "").trim();
+            try {
+                const response = await fetch(url, {
+                    method: "POST",
+                    signal: controller.signal,
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        system_instruction: { parts: [{ text: promptHeThong }] },
+                        contents: [{ role: "user", parts: [{ text: promptText }] }],
+                        generationConfig: {
+                            temperature: 0.5,
+                            maxOutputTokens: 40 // Giảm số lượng token sinh ra để API phản hồi tức thì
                         }
+                    })
+                });
+
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts) {
+                        return data.candidates[0].content.parts[0].text.replace(/[*#_\-~]/g, "").trim();
                     }
-                } catch (err) {}
+                }
+            } catch (err) {
+                clearTimeout(timeoutId);
             }
 
             return "Con nghe chưa rõ lắm, bố nói lại cho con nghe với nha!";
