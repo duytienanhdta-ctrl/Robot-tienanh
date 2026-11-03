@@ -283,10 +283,11 @@
             }
         }
 
-      // --- 5. GỌI GEMINI REST API TỰ ĐỘNG BÁO LỖI CHÍNH XÁC ---
+      // --- 5. GỌI GEMINI REST API CHUẨN XÁC VỚI API KEY MỚI (DẠNG AQ.) ---
         async function askGemini(promptText) {
             let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
-            const currentKey = rawKey.replace(/[^a-zA-Z0-9_\-]/g, "").trim();
+            // Lọc sạch khoảng trắng ở hai đầu nhưng GIỮ NGUYÊN dấu chấm (.) của key mới
+            const currentKey = rawKey.trim();
             
             if (!currentKey) {
                 return "Bố bấm nút Cài đặt API Key ở góc trên để dán mã khóa vào giúp con nhé!";
@@ -297,19 +298,25 @@
             const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
             const dateStr = `${days[now.getDay()]}, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`;
 
-            const systemPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, không dùng ký tự đặc biệt.\n\nBố hỏi: "${promptText}"\nTrả lời:`;
+            const fullPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không dùng ký hiệu đặc biệt.\n\nBố hỏi: ${promptText}\nTiến Anh:`;
 
-            // Gọi model flash ổn định nhất của Gemini
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentKey}`;
+            // Dùng endpoint v1beta với model gemini-2.5-flash
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
 
             try {
                 const response = await fetch(url, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": currentKey // Gửi API Key qua Header chuẩn để hỗ trợ key dạng AQ.
+                    },
                     body: JSON.stringify({
-                        contents: [{
-                            parts: [{ text: systemPrompt }]
-                        }]
+                        contents: [
+                            {
+                                role: "user",
+                                parts: [{ text: fullPrompt }]
+                            }
+                        ]
                     })
                 });
 
@@ -319,17 +326,15 @@
                     if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
                         let reply = data.candidates[0].content.parts[0].text;
                         return reply.replace(/[*#_\-~"]/g, "").trim();
-                    } else {
-                        return "Dữ liệu trả về bị trống rồi bố ơi!";
                     }
+                    return "Con chưa nghĩ ra câu trả lời bố ơi!";
                 } else {
-                    // HIỂN THỊ TRỰC TIẾP LỖI CỦA GOOGLE ĐỂ XỬ LÝ
-                    const errMsg = (data.error && data.error.message) ? data.error.message : ("Mã lỗi: " + response.status);
-                    console.error("Chi tiết lỗi Gemini:", data);
-                    return `Lỗi API (${response.status}): ${errMsg.substring(0, 80)}`;
+                    const detail = data.error?.message || ("Mã lỗi " + response.status);
+                    console.error("Lỗi Gemini API:", data);
+                    return `Lỗi API (${response.status}): ${detail.substring(0, 60)}`;
                 }
             } catch (err) {
-                return "Lỗi mạng hoặc kết nối: " + err.message;
+                return "Lỗi kết nối mạng rồi bố ơi!";
             }
         }
         // --- 6. NHẬN DIỆN GIỌNG NÓI AN TOÀN TRÊN SAFARI ---
