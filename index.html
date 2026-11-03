@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Robot Tiến Anh - Trợ Lý Thông Minh</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -34,15 +34,15 @@
     </header>
 
     <!-- Khu vực Canvas hiển thị khuôn mặt robot -->
-    <main class="flex-1 w-full flex items-center justify-center relative">
+    <main class="flex-1 w-full flex items-center justify-center relative cursor-pointer" id="main-area">
         <canvas id="robotCanvas"></canvas>
         
         <!-- Nút bấm bắt đầu trò chuyện lần đầu -->
-        <div id="start-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-20 transition-opacity">
-            <button id="btn-start" class="px-8 py-3.5 rounded-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-base shadow-[0_0_30px_rgba(6,182,212,0.6)] transition-all transform hover:scale-105 active:scale-95">
+        <div id="start-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-20 transition-all duration-300">
+            <button id="btn-start" type="button" class="px-8 py-4 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-black font-bold text-base shadow-[0_0_30px_rgba(6,182,212,0.6)] transition-all">
                 Bắt đầu trò chuyện với Tiến Anh
             </button>
-            <p class="mt-4 text-xs text-neutral-400">Nhấn để kích hoạt micro và âm thanh của bé Tiến Anh</p>
+            <p class="mt-4 text-xs text-neutral-400">Chạm để đánh thức và cấp quyền cho bé Tiến Anh</p>
         </div>
     </main>
 
@@ -50,16 +50,17 @@
     <footer class="w-full max-w-2xl px-6 py-4 z-10 bg-gradient-to-t from-black to-transparent flex flex-col gap-1 text-center">
         <p id="user-sub" class="text-sm text-neutral-400 min-h-[1.5rem] italic"></p>
         <p id="bot-sub" class="text-base font-medium text-cyan-300 min-h-[1.75rem]"></p>
+        <p class="text-[11px] text-neutral-500 mt-1">Mẹo: Bố có thể chạm vào màn hình bất kỳ lúc nào để nói chuyện</p>
     </footer>
 
     <script>
         // --- 1. CẤU HÌNH & TRẠNG THÁI ---
         let apiKey = localStorage.getItem("gemini_api_key") || "";
         let isTalking = false;
-        let robotState = "NORMAL"; // NORMAL (Lắng nghe), THINKING, SPEAKING
+        let isThinking = false;
+        let robotState = "NORMAL";
         let recognition = null;
         let silenceTimer = null;
-        let transcriptBuffer = "";
 
         const canvas = document.getElementById("robotCanvas");
         const ctx = canvas.getContext("2d");
@@ -71,16 +72,17 @@
         const btnConfig = document.getElementById("btn-config");
         const btnStart = document.getElementById("btn-start");
         const startOverlay = document.getElementById("start-overlay");
+        const mainArea = document.getElementById("main-area");
 
         // --- 2. KÍCH THƯỚC CANVAS ---
         function resizeCanvas() {
             canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight * 0.75;
+            canvas.height = window.innerHeight * 0.70;
         }
         window.addEventListener("resize", resizeCanvas);
         resizeCanvas();
 
-        // --- 3. HOẠT HOẠ KHUÔN MẶT ROBOT ---
+        // --- 3. HOẠT HỌA KHUÔN MẶT ROBOT ---
         let blinkProgress = 1.0;
         let isClosing = true;
         let isBlinking = false;
@@ -121,7 +123,6 @@
 
             animTimer += 0.016;
 
-            // Xử lý chớp mắt
             if (isBlinking) {
                 if (isClosing) {
                     blinkProgress -= 0.15;
@@ -138,14 +139,12 @@
                 }
             }
 
-            // Chuyển động miệng theo nhịp nói
             if (robotState === "SPEAKING") {
                 mouthHeight = 16.0 + 14.0 * Math.sin(animTimer * 18.0);
             } else {
                 mouthHeight = 4.0;
             }
 
-            // Màu chủ đạo
             let mainColor = "#00d8f6";
             if (robotState === "THINKING") mainColor = "#f59e0b";
             if (robotState === "SPEAKING") mainColor = "#10b981";
@@ -160,7 +159,7 @@
             const leftEyeX = cx - eyeW - (gap / 2);
             const rightEyeX = cx + (gap / 2);
 
-            // --- VẼ HAI TAI ROBOT (VỂNH HƯỚNG LÊN TRÊN) ---
+            // --- VẼ HAI TAI ROBOT (VỂNH LÊN TRÊN) ---
             ctx.save();
             ctx.strokeStyle = mainColor;
             ctx.fillStyle = (robotState === "SPEAKING") ? "rgba(16, 185, 129, 0.25)" : "rgba(0, 216, 246, 0.25)";
@@ -169,17 +168,15 @@
             ctx.shadowColor = mainColor;
             ctx.shadowBlur = 15;
 
-            // Tai mở rộng khi đang nghe, thu nhỏ khi nói hoặc suy nghĩ
-            const earSpan = (robotState === "NORMAL") ? 50 : 25; 
-            const earHeight = (robotState === "NORMAL") ? 45 : 20;
+            const earSpan = (robotState === "NORMAL") ? 45 : 22; 
+            const earHeight = (robotState === "NORMAL") ? 40 : 18;
 
-            // 1. TAI TRÁI
+            // Tai trái
             const leftEarBaseX = leftEyeX;
             const leftEarBaseY = cy - 10;
-
             ctx.beginPath();
             ctx.moveTo(leftEarBaseX, leftEarBaseY - 35);
-            ctx.lineTo(leftEarBaseX - earSpan, leftEarBaseY - earHeight); // Đỉnh vểnh lên trên
+            ctx.lineTo(leftEarBaseX - earSpan, leftEarBaseY - earHeight);
             ctx.lineTo(leftEarBaseX, leftEarBaseY + 25);
             ctx.closePath();
             ctx.fill();
@@ -190,14 +187,13 @@
             ctx.fillStyle = '#ffffff';
             ctx.fill();
 
-            // 2. TAI PHẢI
+            // Tai phải
             const rightEarBaseX = rightEyeX + eyeW;
             const rightEarBaseY = cy - 10;
-
             ctx.fillStyle = (robotState === "SPEAKING") ? "rgba(16, 185, 129, 0.25)" : "rgba(0, 216, 246, 0.25)";
             ctx.beginPath();
             ctx.moveTo(rightEarBaseX, rightEarBaseY - 35);
-            ctx.lineTo(rightEarBaseX + earSpan, rightEarBaseY - earHeight); // Đỉnh vểnh lên trên
+            ctx.lineTo(rightEarBaseX + earSpan, rightEarBaseY - earHeight);
             ctx.lineTo(rightEarBaseX, rightEarBaseY + 25);
             ctx.closePath();
             ctx.fill();
@@ -225,7 +221,7 @@
             drawRoundedRect(rightEyeX, eyeY, eyeW, eyeH, radius);
             ctx.shadowBlur = 0;
 
-            // --- VẼ MIỆNG ROBOT ---
+            // --- VẼ MIỆNG ---
             const mouthW = eyeW * 1.5;
             const mouthX = cx - (mouthW / 2);
             const mouthY = cy + (eyeBaseH / 2) + 25;
@@ -240,7 +236,7 @@
         }
         requestAnimationFrame(drawFace);
 
-        // --- 4. BỘ PHÁT ÂM GIỮ LUỒNG CHO IOS ---
+        // --- 4. BỘ PHÁT ÂM TIẾNG VIỆT (AN TOÀN CHO IOS) ---
         function speakText(text, callback) {
             if (!text || !text.trim()) {
                 if (callback) callback();
@@ -250,7 +246,13 @@
             isTalking = true;
             setRobotState("SPEAKING");
 
-            window.speechSynthesis.cancel();
+            if (recognition) {
+                try { recognition.abort(); } catch(e) {}
+            }
+
+            try {
+                window.speechSynthesis.cancel();
+            } catch(e) {}
 
             const cleanText = text.replace(/[*#_\-~]/g, "").trim();
             const utter = new SpeechSynthesisUtterance(cleanText);
@@ -273,150 +275,24 @@
             utter.rate = 1.0;
             utter.pitch = 1.15;
 
-            utter.onend = () => {
-                // Đợi 400ms để âm thanh dứt hẳn, mở lại quyền ghi nhận lời nói
+            const onFinish = () => {
+                isTalking = false;
+                setRobotState("NORMAL");
+                if (callback) callback();
+                // Tự động mở mic trở lại sau khi dứt câu
                 setTimeout(() => {
-                    isTalking = false;
-                    setRobotState("NORMAL");
-                    if (callback) callback();
-                }, 400);
+                    startListening();
+                }, 300);
             };
 
-            utter.onerror = () => {
-                setTimeout(() => {
-                    isTalking = false;
-                    setRobotState("NORMAL");
-                    if (callback) callback();
-                }, 400);
-            };
-
-            window.speechSynthesis.speak(utter);
-        }
-
-        // --- 6. NHẬN DIỆN GIỌNG NÓI CHỐNG KHÓA MICRO SAFARI ---
-        let sendLock = false;
-
-        function initSpeechRecognition() {
-            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRec) {
-                alert("Trình duyệt không hỗ trợ Web Speech API!");
-                return;
-            }
+            utter.onend = onFinish;
+            utter.onerror = onFinish;
 
             try {
-                if (recognition) recognition.abort();
-            } catch(e) {}
-
-            recognition = new SpeechRec();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = "vi-VN";
-
-            recognition.onstart = () => {
-                if (!isTalking) setRobotState("NORMAL");
-            };
-
-            recognition.onresult = (event) => {
-                // Khi robot đang nói hoặc đang xử lý gửi API, bỏ qua hoàn toàn âm thanh thu vào
-                if (isTalking || sendLock) return;
-
-                let latestTranscript = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    latestTranscript += event.results[i][0].transcript;
-                }
-                latestTranscript = latestTranscript.trim();
-
-                if (latestTranscript) {
-                    userSub.innerText = `Bố nói: "${latestTranscript}"`;
-
-                    clearTimeout(silenceTimer);
-                    silenceTimer = setTimeout(async () => {
-                        if (isTalking || sendLock) return;
-                        sendLock = true;
-
-                        const query = latestTranscript;
-                        setRobotState("THINKING");
-
-                        const answer = await askGemini(query);
-                        botSub.innerText = `Tiến Anh: "${answer}"`;
-                        
-                        sendLock = false;
-                        speakText(answer);
-                    }, 800);
-                }
-            };
-
-            recognition.onerror = (e) => {
-                // Bỏ qua lỗi no-speech để không làm đơ ứng dụng
-                if (e.error !== "no-speech") {
-                    console.warn("Speech error:", e.error);
-                }
-            };
-
-            recognition.onend = () => {
-                // Tự động khởi động lại ngay nếu Safari tự ngắt luồng
-                if (!sendLock) {
-                    try {
-                        recognition.start();
-                    } catch(e) {}
-                }
-            };
-
-            try {
-                recognition.start();
-            } catch(e) {}
-        }
-
-        function startListening() {
-            if (recognition) {
-                try { recognition.start(); } catch(e) {}
-            } else {
-                initSpeechRecognition();
+                window.speechSynthesis.speak(utter);
+            } catch(e) {
+                onFinish();
             }
-        }
-
-        // --- 7. SỰ KIỆN BẬT / CHẠM MÀN HÌNH ĐỂ KÍCH HOẠT LẠI MICRO NẾU CẦN ---
-        btnStart.addEventListener("click", () => {
-            startOverlay.style.opacity = "0";
-            setTimeout(() => startOverlay.style.display = "none", 300);
-
-            initSpeechRecognition();
-
-            const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
-            botSub.innerText = `Tiến Anh: "${greeting}"`;
-            speakText(greeting);
-        });
-
-        // Cho phép chạm vào bất kỳ đâu trên màn hình để đánh thức lại micro nếu iOS tạm ngắt
-        canvas.addEventListener("click", () => {
-            if (!isTalking && !sendLock) {
-                try {
-                    recognition.start();
-                    setRobotState("NORMAL");
-                } catch(e) {}
-            }
-        });
-
-        btnConfig.addEventListener("click", () => {
-            const current = apiKey || "";
-            const key = prompt("Nhập mã Gemini API Key của bạn:", current);
-            if (key !== null) {
-                apiKey = key.trim();
-                localStorage.setItem("gemini_api_key", apiKey);
-                alert("Đã lưu API Key thành công!");
-            }
-        });
-                // Nếu người dùng chưa nói gì hoặc phiên tự ngắt, tự động mở lại phiên mới
-                if (!isTalking && !sendLock) {
-                    setTimeout(() => {
-                        startListening();
-                    }, 250);
-                }
-            };
-
-            try {
-                recognition.start();
-            } catch(e) {}
         }
 
         // --- 5. GỌI GEMINI REST API ---
@@ -440,7 +316,7 @@ Thông tin gia đình của bạn:
 - Bạn tên là Tiến Anh, 9 tuổi, học lớp 4 trường Tiểu học Phú Hòa 3. 
 - Bố là bố Quang, mẹ là mẹ Thuận. 
 - Anh trai sinh đôi là Duy Anh (học cùng lớp 4 trường Phú Hòa 3). 
-- 2 anh em sinh ngày 26 tháng 5 năm 2017.
+- hai anh em sinh ngày 26 tháng 5 năm 2017.
 - Cách xưng hô: Luôn xưng là 'con' và gọi 'bố' hoặc 'bố Quang'. Tuyệt đối không xưng 'cháu' hay gọi 'cô/chú'. 
 - Bắt buộc trả lời bằng tiếng Việt ngắn gọn, súc tích (1 đến 2 câu ngắn, dưới 25 từ) để đọc thành tiếng tự nhiên, dễ thương, không dùng ký tự đặc biệt, dấu hoa thị hay emoji.`;
 
@@ -452,9 +328,7 @@ Thông tin gia đình của bạn:
                     
                     const response = await fetch(url, {
                         method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             system_instruction: {
                                 parts: [{ text: promptHeThong }]
@@ -473,126 +347,119 @@ Thông tin gia đình của bạn:
                     if (response.ok) {
                         const data = await response.json();
                         if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts) {
-                            const reply = data.candidates[0].content.parts[0].text;
-                            return reply.replace(/[*#_\-~]/g, "").trim();
+                            return data.candidates[0].content.parts[0].text.replace(/[*#_\-~]/g, "").trim();
                         }
-                    } else {
-                        console.warn(`Model ${modelName} đang bận, thử model khác...`);
                     }
-                } catch (err) {
-                    console.warn(`Lỗi kết nối tới ${modelName}:`, err);
-                }
+                } catch (err) {}
             }
 
             return "Con nghe chưa rõ lắm, bố nói lại cho con nghe với nha!";
         }
 
-      // --- 6. NHẬN DIỆN GIỌNG NÓI TỰ ĐỘNG, CHỐNG KẸT TRẠNG THÁI ---
-        let sendLock = false;
+        // --- 6. BỘ THU ÂM TIẾNG VIỆT TƯƠNG THÍCH MỌI TRÌNH DUYỆT ---
+        function startListening() {
+            if (isTalking || isThinking) return;
 
-        function initSpeechRecognition() {
             const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRec) {
-                alert("Trình duyệt không hỗ trợ nhận diện giọng nói!");
-                return;
-            }
-
-            if (recognition) {
-                try { recognition.stop(); } catch(e) {}
-            }
-
-            recognition = new SpeechRec();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = "vi-VN";
-
-            recognition.onstart = () => {
-                if (!isTalking) {
-                    setRobotState("NORMAL");
-                }
-            };
-
-            recognition.onresult = (event) => {
-                // Nếu robot đang nói hoặc đang gửi câu hỏi thì bỏ qua để không thu âm tạp
-                if (isTalking || sendLock) return;
-
-                let fullTranscript = "";
-                for (let i = 0; i < event.results.length; ++i) {
-                    fullTranscript += event.results[i][0].transcript + " ";
-                }
-                fullTranscript = fullTranscript.trim();
-
-                if (fullTranscript) {
-                    userSub.innerText = `Bố nói: "${fullTranscript}"`;
-
-                    // Xóa bộ đếm cũ nếu bố vẫn đang nói tiếp
-                    clearTimeout(silenceTimer);
-
-                    // Khi bố dừng nói đúng 0.8 giây: Gửi câu hỏi đi ngay
-                    silenceTimer = setTimeout(async () => {
-                        if (sendLock || isTalking) return;
-                        sendLock = true;
-
-                        const finalQuery = fullTranscript;
-                        transcriptBuffer = "";
-
-                        // Dừng micro để không thu âm tiếng thở hay tiếng ồn xung quanh
-                        try { recognition.stop(); } catch(e) {}
-
-                        setRobotState("THINKING");
-                        const answer = await askGemini(finalQuery);
-                        botSub.innerText = `Tiến Anh: "${answer}"`;
-                        
-                        sendLock = false;
-                        speakText(answer);
-                    }, 800);
-                }
-            };
-
-            recognition.onerror = (e) => {
-                if (e.error !== "no-speech") {
-                    console.warn("Trạng thái nhận diện:", e.error);
-                }
-            };
-
-            recognition.onend = () => {
-                // Tự động bật lại micro khi robot không nói và không bận xử lý
-                if (!isTalking && !sendLock) {
-                    setTimeout(() => {
-                        try { recognition.start(); } catch(e) {}
-                    }, 200);
-                }
-            };
+            if (!SpeechRec) return;
 
             try {
-                recognition.start();
+                if (recognition) {
+                    recognition.onend = null;
+                    recognition.abort();
+                }
             } catch(e) {}
-        }
 
-        function startListening() {
-            isTalking = false;
-            sendLock = false;
-            setRobotState("NORMAL");
-            if (recognition) {
-                try { recognition.start(); } catch(e) {}
-            } else {
-                initSpeechRecognition();
+            try {
+                recognition = new SpeechRec();
+                recognition.continuous = false;
+                recognition.interimResults = true;
+                recognition.lang = "vi-VN";
+
+                let tempTranscript = "";
+
+                recognition.onstart = () => {
+                    setRobotState("NORMAL");
+                };
+
+                recognition.onresult = (event) => {
+                    if (isTalking || isThinking) return;
+
+                    let str = "";
+                    for (let i = 0; i < event.results.length; ++i) {
+                        str += event.results[i][0].transcript;
+                    }
+                    tempTranscript = str.trim();
+
+                    if (tempTranscript) {
+                        userSub.innerText = `Bố nói: "${tempTranscript}"`;
+
+                        clearTimeout(silenceTimer);
+                        silenceTimer = setTimeout(async () => {
+                            if (isThinking || isTalking) return;
+                            isThinking = true;
+
+                            const query = tempTranscript;
+                            try { recognition.abort(); } catch(e) {}
+
+                            setRobotState("THINKING");
+                            const answer = await askGemini(query);
+                            botSub.innerText = `Tiến Anh: "${answer}"`;
+                            
+                            isThinking = false;
+                            speakText(answer);
+                        }, 750);
+                    }
+                };
+
+                recognition.onerror = (e) => {
+                    // Tự khởi động lại nếu gặp lỗi no-speech
+                    if (e.error === "no-speech" && !isTalking && !isThinking) {
+                        setTimeout(() => startListening(), 200);
+                    }
+                };
+
+                recognition.onend = () => {
+                    if (!isTalking && !isThinking) {
+                        setTimeout(() => startListening(), 200);
+                    }
+                };
+
+                recognition.start();
+            } catch(err) {
+                console.warn("Không thể kích hoạt micro:", err);
             }
         }
 
-        // --- 7. SỰ KIỆN NÚT BẤM & KHỞI ĐỘNG ---
-        btnStart.addEventListener("click", () => {
-            startOverlay.style.opacity = "0";
-            setTimeout(() => startOverlay.style.display = "none", 300);
+        // --- 7. SỰ KIỆN NÚT BẮT ĐẦU & CHẠM MÀN HÌNH ---
+        btnStart.addEventListener("click", (e) => {
+            e.stopPropagation();
+            // Ẩn bảng bắt đầu ngay lập tức
+            startOverlay.style.display = "none";
 
-            initSpeechRecognition();
+            // Kích hoạt nạp âm thanh trước để Safari cấp quyền
+            try {
+                window.speechSynthesis.getVoices();
+            } catch(err) {}
 
             const greeting = "Con chào bố Quang, con nghe rõ rồi ạ!";
             botSub.innerText = `Tiến Anh: "${greeting}"`;
-            speakText(greeting);
+            
+            // Đọc câu chào, sau khi chào xong sẽ tự động mở mic
+            speakText(greeting, () => {
+                startListening();
+            });
         });
 
-        btnConfig.addEventListener("click", () => {
+        // Bấm vào bất kỳ đâu trên màn hình hoặc mặt robot đều có thể đánh thức micro
+        mainArea.addEventListener("click", () => {
+            if (startOverlay.style.display === "none" && !isTalking && !isThinking) {
+                startListening();
+            }
+        });
+
+        btnConfig.addEventListener("click", (e) => {
+            e.stopPropagation();
             const current = apiKey || "";
             const key = prompt("Nhập mã Gemini API Key của bạn:", current);
             if (key !== null) {
