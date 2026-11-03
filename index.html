@@ -283,9 +283,10 @@
             }
         }
 
-      // --- 5. GỌI GEMINI REST API CHUẨN XÁC (SỬA LỖI 404) ---
+     // --- 5. GỌI GEMINI REST API DÀNH RIÊNG CHO KHÓA DẠNG AQ. ---
         async function askGemini(promptText) {
             let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
+            // Giữ nguyên chuỗi key kể cả dấu chấm (.), chỉ bỏ khoảng trắng ở hai đầu
             const currentKey = rawKey.trim();
             
             if (!currentKey) {
@@ -297,18 +298,17 @@
             const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
             const dateStr = `${days[now.getDay()]}, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`;
 
-            const fullPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không dùng ký hiệu đặc biệt.\n\nBố hỏi: ${promptText}\nTiến Anh:`;
+            const fullPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không ký hiệu đặc biệt.\n\nBố hỏi: ${promptText}\nTiến Anh:`;
 
-            // Dùng model chính thức gemini-1.5-flash để không bao giờ bị lỗi 404
-            const targetModel = "gemini-1.5-flash";
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(currentKey)}`;
+            // ĐƯỜNG DẪN SẠCH: Tuyệt đối không gắn ?key= vào URL đối với key dạng AQ.
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
 
             try {
                 const response = await fetch(url, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "x-goog-api-key": currentKey
+                        "x-goog-api-key": currentKey // Xác thực chuẩn qua Header
                     },
                     body: JSON.stringify({
                         contents: [
@@ -329,9 +329,9 @@
                     }
                     return "Con chưa nghĩ ra câu trả lời bố ơi!";
                 } else {
-                    const detail = data.error?.message || ("Mã lỗi " + response.status);
-                    console.error("Lỗi Gemini API:", data);
-                    return `Lỗi API (${response.status}): ${detail.substring(0, 60)}`;
+                    const detail = data.error?.message || `Mã phản hồi HTTP ${response.status}`;
+                    console.error("Lỗi Gemini:", data);
+                    return `Lỗi API (${response.status}): ${detail.substring(0, 50)}`;
                 }
             } catch (err) {
                 return "Lỗi kết nối mạng rồi bố ơi!";
