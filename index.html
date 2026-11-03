@@ -283,10 +283,12 @@
             }
         }
 
-     // --- 5. GỌI GEMINI REST API DÀNH RIÊNG CHO KHÓA DẠNG AQ. ---
+    // Biến lưu model đã tìm thấy để các lần sau không cần quét lại
+        let cachedValidModel = null;
+
+        // --- 5. TỰ ĐỘNG QUÉT VÀ GỌI ĐÚNG MODEL HỢP LỆ CỦA TÀI KHOẢN ---
         async function askGemini(promptText) {
             let rawKey = apiKey || localStorage.getItem("gemini_api_key") || "";
-            // Giữ nguyên chuỗi key kể cả dấu chấm (.), chỉ bỏ khoảng trắng ở hai đầu
             const currentKey = rawKey.trim();
             
             if (!currentKey) {
@@ -298,44 +300,83 @@
             const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
             const dateStr = `${days[now.getDay()]}, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`;
 
-            const fullPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không ký hiệu đặc biệt.\n\nBố hỏi: ${promptText}\nTiến Anh:`;
+            const fullPrompt = `Bạn là bé Tiến Anh 9 tuổi, con của bố Quang và mẹ Thuận, anh sinh đôi là Duy Anh. Bạn học lớp 4 trường Phú Hòa 3. Bây giờ là ${timeStr}, ${dateStr}. Luôn xưng con và gọi bố Quang. Trả lời cực ngắn dưới 20 từ, tự nhiên, không dùng ký hiệu đặc biệt.\n\nBố hỏi: ${promptText}\nTiến Anh:`;
 
-            // ĐƯỜNG DẪN SẠCH: Tuyệt đối không gắn ?key= vào URL đối với key dạng AQ.
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
+            // BƯỚC 1: Nếu chưa biết tài khoản hỗ trợ model nào, tự động truy vấn danh sách từ Google
+            if (!cachedValidModel) {
+                try {
+                    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(currentKey)}`;
+                    const listRes = await fetch(listUrl, {
+                        headers: { "x-goog-api-key": currentKey }
+                    });
+                    
+                    if (listRes.ok) {
+                        const listData = await listRes.json();
+                        // Tìm model hỗ trợ tính năng generateContent (ưu tiên flash)
+                        const available = (listData.models || [])
+                            .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
+                            .map(m => m.name.replace("models/", ""));
+                        
+                        console.log("Danh sách model khả dụng của bạn:", available);
 
-            try {
-                const response = await fetch(url, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": currentKey // Xác thực chuẩn qua Header
-                    },
-                    body: JSON.stringify({
-                        contents: [
-                            {
+                        // Ưu tiên các model flash nhanh nhất
+                        const preferred = available.find(m => m.includes("flash")) || available[0];
+                        if (preferred) {
+                            cachedValidModel = preferred;
+                        }
+                    } else {
+                        const err = await listRes.json().catch(() => ({}));
+                        console.error("Lỗi lấy danh sách model:", err);
+                    }
+                } catch (e) {
+                    console.warn("Không thể quét danh sách model, chuyển sang thử thủ công:", e);
+                }
+            }
+
+            // BƯỚC 2: Thử model đã quét được, hoặc lần lượt các model phổ biến nhất
+            const candidateModels = cachedValidModel 
+                ? [cachedValidModel] 
+                : ["gemini-1.5-flash-8b", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+
+            let lastErrDetail = "";
+
+            for (const model of candidateModels) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(currentKey)}`;
+
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": currentKey
+                        },
+                        body: JSON.stringify({
+                            contents: [{
                                 role: "user",
                                 parts: [{ text: fullPrompt }]
-                            }
-                        ]
-                    })
-                });
+                            }]
+                        })
+                    });
 
-                const data = await response.json();
+                    const data = await response.json();
 
-                if (response.ok) {
-                    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
-                        let reply = data.candidates[0].content.parts[0].text;
-                        return reply.replace(/[*#_\-~"]/g, "").trim();
+                    if (response.ok) {
+                        cachedValidModel = model; // Lưu lại model chạy thành công
+                        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+                            let reply = data.candidates[0].content.parts[0].text;
+                            return reply.replace(/[*#_\-~"]/g, "").trim();
+                        }
+                        return "Con chưa nghĩ ra câu trả lời bố ơi!";
+                    } else {
+                        lastErrDetail = data.error?.message || `Mã HTTP ${response.status}`;
                     }
-                    return "Con chưa nghĩ ra câu trả lời bố ơi!";
-                } else {
-                    const detail = data.error?.message || `Mã phản hồi HTTP ${response.status}`;
-                    console.error("Lỗi Gemini:", data);
-                    return `Lỗi API (${response.status}): ${detail.substring(0, 50)}`;
+                } catch (err) {
+                    lastErrDetail = err.message;
                 }
-            } catch (err) {
-                return "Lỗi kết nối mạng rồi bố ơi!";
             }
+
+            // Hiển thị trực tiếp lỗi chính xác ra giao diện
+            return `Lỗi API: ${lastErrDetail.substring(0, 70)}`;
         }
         // --- 6. NHẬN DIỆN GIỌNG NÓI AN TOÀN TRÊN SAFARI ---
         function startListening() {
